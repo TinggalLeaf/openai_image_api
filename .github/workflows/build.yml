@@ -37,10 +37,10 @@ jobs:
           elif [ "${{ github.event_name }}" = "push" ]; then
             TAG="${{ github.ref_name }}"
           elif [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
-            TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+            TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q .tagName 2>/dev/null || true)
             # 已有构建产物的 release 不重复构建
             if [ -n "$TAG" ]; then
-              ASSETS=$(gh release view "$TAG" --json assets -q '.assets | length')
+              ASSETS=$(gh release view "$TAG" --repo ${{ github.repository }} --json assets -q '.assets | length')
               [ "$ASSETS" -gt 0 ] && TAG=""
             fi
           fi
