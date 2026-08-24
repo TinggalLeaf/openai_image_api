@@ -74,6 +74,7 @@ jobs:
             binary: image_core
             archive: image_core-linux-aarch64.tar.gz
             cross: true
+            outdir: aarch64-unknown-linux-gnu/release
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: image_core
@@ -152,14 +153,13 @@ jobs:
       - name: Stage binary
         shell: bash
         run: |
+          OUTDIR="${{ matrix.outdir || 'release' }}"
           mkdir -p release/${{ matrix.target }}
+          cp "image_core/target/$OUTDIR/${{ matrix.binary }}" release/${{ matrix.target }}/
+          cp image_core/README.md release/${{ matrix.target }}/
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp image_core/target/${{ matrix.cross && matrix.target || 'release' }}/${{ matrix.binary }} release/${{ matrix.target }}/
-            cp image_core/README.md release/${{ matrix.target }}/
-            (cd release/${{ matrix.target }} && 7z a ../${{ matrix.archive }} ${{ matrix.binary }} README.md) || (cd release/${{ matrix.target }} && zip -r ../${{ matrix.archive }} ${{ matrix.binary }} README.md)
+            (cd release/${{ matrix.target }} && 7z a ../${{ matrix.archive }} ${{ matrix.binary }} README.md)
           else
-            cp image_core/target/${{ matrix.cross && matrix.target || 'release' }}/${{ matrix.binary }} release/${{ matrix.target }}/
-            cp image_core/README.md release/${{ matrix.target }}/
             tar -czf release/${{ matrix.archive }} -C release/${{ matrix.target }} ${{ matrix.binary }} README.md
           fi
 
