@@ -5,13 +5,52 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "要构建并发布的目标 tag（如 v0.2.0）"
+        required: true
+  # release-please 用 GITHUB_TOKEN 创建 release，不会级联触发 push/release 事件，
+  # 因此通过 workflow_run 在 release-please 跑完后接力构建最新 release。
+  workflow_run:
+    workflows: ["release-please"]
+    types: [completed]
 
 permissions:
   contents: write
 
 jobs:
+  resolve:
+    name: 解析目标 tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      should_build: ${{ steps.tag.outputs.should_build }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
+          elif [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+            # 已有构建产物的 release 不重复构建
+            if [ -n "$TAG" ]; then
+              ASSETS=$(gh release view "$TAG" --json assets -q '.assets | length')
+              [ "$ASSETS" -gt 0 ] && TAG=""
+            fi
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "should_build=$([ -n "$TAG" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   build:
     name: build (${{ matrix.target }})
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -47,6 +86,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -130,9 +171,8 @@ jobs:
           if-no-files-found: error
 
       - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
           files: release/${{ matrix.archive }}
-          generate_release_notes: true
           fail_on_unmatched_files: true
