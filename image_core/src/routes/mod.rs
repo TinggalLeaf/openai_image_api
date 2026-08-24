@@ -134,6 +134,8 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/siliconflow", public_siliconflow)
         .nest("/zhipu", public_zhipu)
         .merge(public_openai)
+        // 无需鉴权的健康检查，供负载均衡/监控探活使用
+        .route("/healthz", get(admin::health))
         .route("/files/images/{filename}", get(serve_image))
         .fallback(spa_fallback)
         .layer(cors)
