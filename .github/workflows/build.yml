@@ -133,9 +133,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             image_core/target
-          key: cargo-${{ matrix.target }}-${{ hashFiles('image_core/Cargo.lock') }}
+          key: cargo-${{ matrix.os }}-${{ matrix.target }}-${{ hashFiles('image_core/Cargo.lock') }}
           restore-keys: |
-            cargo-${{ matrix.target }}-
+            cargo-${{ matrix.os }}-${{ matrix.target }}-
 
       - name: Build (host)
         if: "!matrix.cross"
