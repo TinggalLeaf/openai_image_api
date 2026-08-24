@@ -1,0 +1,138 @@
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: image_core.exe
+            archive: image_core-windows-x86_64.zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: image_core
+            archive: image_core-linux-x86_64.tar.gz
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            binary: image_core
+            archive: image_core-linux-x86_64-22.04.tar.gz
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            binary: image_core
+            archive: image_core-linux-aarch64.tar.gz
+            cross: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: image_core
+            archive: image_core-macos-aarch64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            binary: image_core
+            archive: image_core-macos-x86_64.tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: image_webui/package-lock.json
+
+      - name: Install webui dependencies
+        working-directory: image_webui
+        run: npm ci
+
+      - name: Build webui (static export → image_webui/out/)
+        working-directory: image_webui
+        run: npm run build
+
+      - name: Copy webui/out into image_core/assets/
+        shell: bash
+        run: |
+          mkdir -p image_core/assets
+          # Clear placeholder so we don't ship stale files in the binary.
+          rm -rf image_core/assets/*
+          cp -R image_webui/out/. image_core/assets/
+          # Sanity-check: must contain index.html.
+          test -f image_core/assets/index.html
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cross-compile Linux ARM64 using the official target.
+      - name: Install Rust target (cross)
+        if: matrix.cross
+        run: |
+          rustup target add ${{ matrix.target }}
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            image_core/target
+          key: cargo-${{ matrix.target }}-${{ hashFiles('image_core/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.target }}-
+
+      - name: Build (host)
+        if: "!matrix.cross"
+        working-directory: image_core
+        run: cargo build --release
+
+      - name: Build (cross)
+        if: matrix.cross
+        working-directory: image_core
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p release/${{ matrix.target }}
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp image_core/target/${{ matrix.cross && matrix.target || 'release' }}/${{ matrix.binary }} release/${{ matrix.target }}/
+            cp image_core/README.md release/${{ matrix.target }}/
+            (cd release/${{ matrix.target }} && 7z a ../${{ matrix.archive }} ${{ matrix.binary }} README.md) || (cd release/${{ matrix.target }} && zip -r ../${{ matrix.archive }} ${{ matrix.binary }} README.md)
+          else
+            cp image_core/target/${{ matrix.cross && matrix.target || 'release' }}/${{ matrix.binary }} release/${{ matrix.target }}/
+            cp image_core/README.md release/${{ matrix.target }}/
+            tar -czf release/${{ matrix.archive }} -C release/${{ matrix.target }} ${{ matrix.binary }} README.md
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: release/${{ matrix.archive }}
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/${{ matrix.archive }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

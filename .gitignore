@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+.next/
+out/
+target/
+image_core/assets/*
+!image_core/assets/index.html
+!image_core/assets/.gitignore
+
+# 运行时数据与本地配置
+data/
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.log
